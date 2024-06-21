@@ -50,3 +50,7 @@ function checkObject(data) {
       throw new Error("Longitude must be a number between -180 and 180");
     }
   }
+
+
+  const apiKey = process.env.API_KEY;
+    const weatherUrl = `https://api.openweathermap.org/data/2.5/weather?lat=${latitude}&lon=${longitude}&appid=${apiKey}&units=metric`;

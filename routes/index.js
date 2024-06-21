@@ -1,126 +1,80 @@
-import express from 'express';
-import pool from '../config/dbcongig.js'
-import validateIdParams from "../utils/validateIdParam.js";
-import validateEntriesData from "../utils/validateEntriesData.js";
-import fetch from 'node-fetch';
-
-const router = express.Router();
-
-// GET /entries: Retrieve all journal entries
-router.get('/', (req, res, next) => {
-  try {
-    pool.query("SELECT * FROM journal_entries;", (err, result) => {
-      if (err) return next(err);
-      if (result.rows.length < 1) {
-        res.json({ message: "No entries in the database" });
-      } else {
-        res.json(result.rows);
-      }
-    });
-  } catch (error) {
-    next(error);
-  }
+import { Router } from "express";
+import express from 'express'
+import pool  from '../config/dbconfig.js'
+import 'dotenv/config';
+const apiKey = process.env.API_KEY;
+import axios from 'axios';
+const router = express.Router()
+router.get('/', (req, res) => {
+  res.send('Weather Forecast Journal API');
 });
 
-// GET /entries/:id: Retrieve a single entry by its ID
-router.get("/:id", (req, res, next) => {
-  const { id } = req.params;
+router.get('/weather', async (req, res) => {
   try {
-    validateIdParams(+id);
-    pool.query("SELECT * FROM journal_entries WHERE id=$1;", [id], (err, result) => {
-      if (err) return next(err);
-      if (result?.rowCount === 1) {
-        res.json(result.rows[0]);
-      } else {
-        const notFoundError = new Error("Entry does not exist");
-        notFoundError.status = 404;
-        console.warn(`Entry with ID ${id} does not exist`);
-        next(notFoundError);
-      }
-    });
-  } catch (error) {
-    console.error('Validation or other error:', error.message);
-    next(error);
-  }
-});
-
-// POST /entries: Create a new journal entry with automatic weather fetching
-router.post("/", async (req, res, next) => {
-  try {
-    validateEntriesData(req.body);
-    const { entry_date, description, latitude, longitude } = req.body;
-
-    const apiKey = process.env.API_KEY;
-    const weatherUrl = `https://api.openweathermap.org/data/2.5/weather?lat=${latitude}&lon=${longitude}&appid=${apiKey}&units=metric`;
-
-    const response = await fetch(weatherUrl);
-    if (!response.ok) {
-      throw new Error(`Weather API error: ${response.statusText}`);
-    }
-    const weatherData = await response.json();
-
-    const weather_condition = weatherData.weather[0].description;
-    const temperature = weatherData.main.temp;
-    const location = `${weatherData.name}, ${weatherData.sys.country}`;
-
-    const query = `INSERT INTO journal_entries (entry_date, description, temperature, weather_condition, location) VALUES ($1, $2, $3, $4, $5) RETURNING *`;
-    const values = [entry_date, description, temperature, weather_condition, location];
-
-    pool.query(query, values, (err, result) => {
-      if (err) return next(err);
-      res.status(201).json(result.rows[0]);
-    });
-  } catch (error) {
-    next(error);
-  }
-});
-
-// PUT /entries/:id: Update an existing entry
-router.put("/:id", (req, res, next) => {
-  const { id } = req.params;
-  try {
-    validateIdParams(+id);
-    validateEntriesData(req.body);
-    const { entry_date, description } = req.body;
+    const lat = 52.5200; 
+    const lon = 13.4050; 
+    const part = 'hourly'; 
     
-    pool.query("SELECT * FROM journal_entries WHERE id=$1", [id], (err, result) => {
-      if (err) return next(err);
-      if (result?.rowCount === 1) {
-        const updateQuery = `UPDATE journal_entries SET entry_date=$1, description=$2 WHERE id=$3 RETURNING *`;
-        const values = [entry_date, description, id];
-        pool.query(updateQuery, values, (err, result) => {
-          if (err) return next(err);
-          res.json(result.rows[0]);
-        });
-      } else {
-        const notFoundError = new Error("Entry does not exist");
-        notFoundError.status = 404;
-        next(notFoundError);
-      }
-    });
+
+    const weatherResponse = await axios.get(`https://api.openweathermap.org/data/2.5/onecall?lat=${lat}&lon=${lon}&exclude=${part}&appid=${apiKey}`);
+
+    res.json(weatherResponse.data);
   } catch (error) {
-    next(error);
+    res.status(500).json({ error: 'Failed to fetch weather data' });
   }
 });
 
-// DELETE /entries/:id: Delete an entry
-router.delete("/:id", (req, res, next) => {
-  const { id } = req.params;
-  try {
-    validateIdParams(+id);
-    pool.query("DELETE FROM journal_entries WHERE id=$1 RETURNING *", [id], (err, result) => {
-      if (err) return next(err);
-      if (result.rowCount === 1) {
-        res.json({ message: `Entry with ID ${id} deleted successfully.` });
-      } else {
-        const notFoundError = new Error("Entry does not exist");
-        notFoundError.status = 404;
-        next(notFoundError);
-      }
-    });
-  } catch (error) {
-    next(error);
-  }
+let journalEntries = [];
+router.get("/", function (req, res, next) {
+    try {
+      client.query("select * from jounal;", (err, result) => {
+        if (err) {
+          throw err;
+        }
+        if (result.rows.length < 1) {
+          res.json({ message: "There are no journal in the database" });
+        } else {
+          res.json(result.rows);
+        }
+      });
+    } catch (error) {
+      next(error);
+    }
+  });
+router.get('/jounal/:id', (req, res) => {
+    const entryId = parseInt(req.params.id);
+    const entry = journalEntries.find((entry) => entry.id === entryId);
+    if (entry) {
+        res.json(entry);
+    } else {
+        res.status(404).json({ error: 'Entry not found' });
+    }
 });
-
+router.post('/jounal', (req, res) => {
+    const newEntry = req.body;
+    newEntry.id = journalEntries.length > 0 ? journalEntries[journalEntries.length - 1].id + 1 : 1;
+    journalEntries.push(newEntry);
+    res.status(201).json(newEntry);
+});
+router.put('/jounal/:id', (req, res) => {
+    const entryId = parseInt(req.params.id);
+    const entryIndex = journalEntries.findIndex((entry) => entry.id === entryId);
+    if (entryIndex !== -1) {
+        const updatedEntry = req.body;
+        journalEntries[entryIndex] = { ...journalEntries[entryIndex], ...updatedEntry };
+        res.json(journalEntries[entryIndex]);
+    } else {
+        res.status(404).json({ error: 'Entry not found' });
+    }
+});
+router.delete('/jounal/:id', (req, res) => {
+    const entryId = parseInt(req.params.id);
+    const initialLength = journalEntries.length;
+    journalEntries = journalEntries.filter((entry) => entry.id !== entryId);
+    if (journalEntries.length < initialLength) {
+        res.json({ message: 'Entry deleted successfully' });
+    } else {
+        res.status(404).json({ error: 'Entry not found' });
+    }
+});
 export default router;
