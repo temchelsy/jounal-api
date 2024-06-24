@@ -1,80 +1,59 @@
 import { Router } from "express";
 import express from 'express'
-import pool  from '../config/dbconfig.js'
+import pool from '../config/dbconfig.js'
 import 'dotenv/config';
 const apiKey = process.env.API_KEY;
 import axios from 'axios';
 const router = express.Router()
-router.get('/', (req, res) => {
-  res.send('Weather Forecast Journal API');
-});
+ 
+router.post('/', async (req, res) => {
+  const { date, description, latitude, longitude } = req.body;
 
-router.get('/weather', async (req, res) => {
   try {
-    const lat = 52.5200; 
-    const lon = 13.4050; 
-    const part = 'hourly'; 
-    
+    // Make weather API call
+    const weatherResponse = await axios.get(`http://api.openweathermap.org/data/2.5/weather?lat=${latitude}&lon=${longitude}&appid=44a1147ed2527a0c66967dd206194156`);
+    const { weather, main } = weatherResponse.data;
+    const temperature = main.temp;
 
-    const weatherResponse = await axios.get(`https://api.openweathermap.org/data/2.5/onecall?lat=${lat}&lon=${lon}&exclude=${part}&appid=${apiKey}`);
+    // Insert into database
+    const newEntry = await pool.query(
+      'INSERT INTO journal (date, description, weather, temperature) VALUES ($1, $2, $3, $4) RETURNING *',
+      [date, description, weather[0].main, temperature]
+    );
 
-    res.json(weatherResponse.data);
+    res.status(201).json(newEntry.rows[0]); // 201 for successful creation
   } catch (error) {
-    res.status(500).json({ error: 'Failed to fetch weather data' });
+    console.error('Database or Weather API error:', error);
+    res.status(500).json({ message: 'Internal server error' });
   }
 });
 
-let journalEntries = [];
-router.get("/", function (req, res, next) {
-    try {
-      client.query("select * from jounal;", (err, result) => {
-        if (err) {
-          throw err;
-        }
-        if (result.rows.length < 1) {
-          res.json({ message: "There are no journal in the database" });
-        } else {
-          res.json(result.rows);
-        }
-      });
-    } catch (error) {
-      next(error);
-    }
-  });
-router.get('/jounal/:id', (req, res) => {
-    const entryId = parseInt(req.params.id);
-    const entry = journalEntries.find((entry) => entry.id === entryId);
-    if (entry) {
-        res.json(entry);
-    } else {
-        res.status(404).json({ error: 'Entry not found' });
-    }
+
+router.get('/', async (req, res) => {
+  try {
+    const entries = await pool.query('SELECT * FROM journal');
+    res.json(entries.rows);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 });
-router.post('/jounal', (req, res) => {
-    const newEntry = req.body;
-    newEntry.id = journalEntries.length > 0 ? journalEntries[journalEntries.length - 1].id + 1 : 1;
-    journalEntries.push(newEntry);
-    res.status(201).json(newEntry);
+router.put('/:id', async (req, res) => {
+  const { id } = req.params;
+  const { date, description, weather, temperature } = req.body;
+  try {
+    const updatedEntry = await pool.query('UPDATE journal SET date = $1, description = $2, weather = $3, temperature = $4 WHERE id = $5 RETURNING *', [date, description, weather, temperature, id]);
+    res.json(updatedEntry.rows[0]);
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 });
-router.put('/jounal/:id', (req, res) => {
-    const entryId = parseInt(req.params.id);
-    const entryIndex = journalEntries.findIndex((entry) => entry.id === entryId);
-    if (entryIndex !== -1) {
-        const updatedEntry = req.body;
-        journalEntries[entryIndex] = { ...journalEntries[entryIndex], ...updatedEntry };
-        res.json(journalEntries[entryIndex]);
-    } else {
-        res.status(404).json({ error: 'Entry not found' });
-    }
+router.delete('/:id', async (req, res) => {
+  const { id } = req.params;
+  try {
+    await client.query('DELETE FROM journal WHERE id = $1', [id]);
+    res.json({ message: 'Entry deleted' });
+  } catch (error) {
+    res.status(500).json({ message: error.message });
+  }
 });
-router.delete('/jounal/:id', (req, res) => {
-    const entryId = parseInt(req.params.id);
-    const initialLength = journalEntries.length;
-    journalEntries = journalEntries.filter((entry) => entry.id !== entryId);
-    if (journalEntries.length < initialLength) {
-        res.json({ message: 'Entry deleted successfully' });
-    } else {
-        res.status(404).json({ error: 'Entry not found' });
-    }
-});
-export default router;
+export default router
