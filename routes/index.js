@@ -4,69 +4,118 @@ import pool from '../config/dbconfig.js'
 import 'dotenv/config';
 const apiKey = process.env.API_KEY;
 import axios from 'axios';
-const router = express.Router()
-router.post('/', async (req, res) => {
-  const { latitude, longitude } = req.body;
+// const router = express.Router()
+// import validateData from '../validation.js';
+
+const router = express.Router();
+// const apiKey = process.env.API_KEY;
+
+function handleApiError(error, next) {
+  if (axios.isAxiosError(error)) {
+    const { response } = error;
+    if (response) {
+      console.error(`API Error: ${response.status} ${response.statusText}`);
+      console.error(response.data);
+      next(new Error(`Weather API error: ${response.status} ${response.statusText} - ${response.data.message || 'No additional details'}`));
+    } else {
+      console.error('API Error:', error.message);
+      next(new Error(`Weather API error: ${error.message}`));
+    }
+  } else {
+    console.error('Unknown Error:', error);
+    next(error);
+  }
+} 
+
+router.post('/', (req, res, next) => {
+  const { date, description, latitude, longitude } = req.body;
 
   try {
-    const weatherResponse = await fetch(
-      `https://api.openweathermap.org/data/2.5/weather?lat=${latitude}&lon=${longitude}&units=metric&appid=44a1147ed2527a0c66967dd206194156`
-    );
+    // validateData({ date, description });
 
-    if (!weatherResponse.ok) {
-      throw new Error('Weather API request failed');
+    if (!latitude || !longitude) {
+      return res.status(400).json({ message: 'Latitude and Longitude are required' });
     }
 
-    const weatherData = await weatherResponse.json();
-    const { main, weather } = weatherData;
+    const url = `http://api.openweathermap.org/data/2.5/weather?lat=${latitude}&lon=${longitude}&appid=${apiKey}`;
+    console.log(`Requesting weather data from URL: ${url}`);
 
-    const temperature = main.temperature;
-    const weatherDescription = weather[0].description;
+    axios.get(url)
+      .then(weatherResponse => {
+        const { weather, main } = weatherResponse.data;
+        const temperature = main.temp;
 
-    const newEntry = await pool.query(
-      'INSERT INTO journal (date, description, temperature, weather) VALUES ($1, $2, $3, $4) RETURNING *',
-      [date, description, temperature, weather]
-    );
-
-    res.status(201).json(newEntry.rows[0]);
+        return pool.query(
+          'INSERT INTO journal (date, description, weather, temperature) VALUES ($1, $2, $3, $4) RETURNING *',
+          [date, description, weather[0].main, temperature]
+        );
+      })
+      .then(result => {
+        res.json(result.rows[0]);
+      })
+      .catch(error => {
+        next(error);
+      });
   } catch (error) {
-    console.error('Database or Weather API error:', error);
-    res.status(500).json({ message: 'Internal server error' });
+    res.status(400).json({ error: error.message });
   }
 });
 
-
-
-
-router.get('/', async (req, res) => {
-  try {
-    const entries = await pool.query('SELECT * FROM journal');
-    res.json(entries.rows);
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+router.get('/', (req, res, next) => {
+  pool.query('SELECT * FROM journal')
+    .then(entries => {
+      res.json(entries.rows);
+    })
+    .catch(error => {
+      next(error);
+    });
 });
-router.put('/:id', async (req, res) => {
+
+router.put('/:id', (req, res, next) => {
+  const { id } = req.params;
+  const { date, description, weather, temperature } = req.body;
+
   try {
-    const { id } = req.params;
-    const { date, description, temperature, weather } = req.body;
-    const updatedEntry = await pool.query(
+   
+
+    pool.query(
       'UPDATE journal SET date = $1, description = $2, weather = $3, temperature = $4 WHERE id = $5 RETURNING *',
       [date, description, weather, temperature, id]
-    );
-    res.json(updatedEntry.rows[0]);
+    )
+      .then(result => {
+        const updatedEntry = result.rows[0];
+        if (!updatedEntry) {
+          res.status(404).json({ error: "Entry not found." });
+        } else {
+          res.json(updatedEntry);
+        }
+      })
+      .catch(error => {
+        next(error);
+      });
   } catch (error) {
-    res.status(500).json({ message: error.message });
+    res.status(400).json({ error: error.message });
   }
 });
 
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', (req, res, next) => {
   const { id } = req.params;
-  try {
-    await pool.query('DELETE FROM journal WHERE id = $1', [id]);
-    res.json({ message: 'Entry deleted' });
-  } catch (error) {
-    res.status(500).json({ message: error.message });
-  }
+
+  pool.query('DELETE FROM journal WHERE id = $1', [id])
+    .then(() => {
+      res.json({ message: 'Entry deleted' });
+    })
+    .catch(error => {
+      next(error);
+    });
 });
-export default router
+
+router.use((error, req, res, next) => {
+  console.error(error);
+  res.status(error.status || 500).json({
+    message: error.message || 'Internal Server Error',
+    stack: process.env.NODE_ENV === 'production' ? '' : error.stack 
+  });
+});
+
+export default router;
