@@ -4,11 +4,10 @@ import pool from '../config/dbconfig.js'
 import 'dotenv/config';
 const apiKey = process.env.API_KEY;
 import axios from 'axios';
-// const router = express.Router()
-// import validateData from '../validation.js';
+
 
 const router = express.Router();
-// const apiKey = process.env.API_KEY;
+
 
 function handleApiError(error, next) {
   if (axios.isAxiosError(error)) {
@@ -31,7 +30,7 @@ router.post('/', (req, res, next) => {
   const { date, description, latitude, longitude } = req.body;
 
   try {
-    // validateData({ date, description });
+ 
 
     if (!latitude || !longitude) {
       return res.status(400).json({ message: 'Latitude and Longitude are required' });
