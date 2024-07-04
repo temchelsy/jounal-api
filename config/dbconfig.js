@@ -14,7 +14,10 @@ const pool = new Pool({
 
 pool
   .connect()
-  .then(() => console.log("Connected to the database on port 5432"))
+  .then(() => {
+    console.log("Connected to the database on port 5432")
+    pool.query('create table if not exists journal()')
+  })
   .catch((err) => console.error(err));
 
 export default pool;
