@@ -16,8 +16,17 @@ pool
   .connect()
   .then(() => {
     console.log("Connected to the database on port 5432")
-    pool.query('create table if not exists journal()')
+    pool.query(`
+      CREATE TABLE IF NOT EXISTS journal (
+          date DATE,
+          description TEXT,
+          temperature DECIMAL,
+          weather VARCHAR(255)
+      );
+  `);
   })
   .catch((err) => console.error(err));
 
 export default pool;
+
+
